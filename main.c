@@ -1,0 +1,299 @@
+/*************************************************************************
+                           main  -  description
+                             -------------------
+    début                : 11 mars 2014
+    copyright            : (C) 2014 par ymoreno
+*************************************************************************/
+
+//---------- Réalisation de la tâche <main> (fichier main.cpp) ---
+
+/////////////////////////////////////////////////////////////////  INCLUDE
+//-------------------------------------------------------- Include système
+#include <stdint.h>
+#include <stdio.h>
+#include <math.h>
+#include <pthread.h>
+#include <stdlib.h>
+#include <string.h>
+#include <inttypes.h>
+//------------------------------------------------------ Include personnel
+
+///////////////////////////////////////////////////////////////////  PRIVE
+//------------------------------------------------------------- Constantes
+const char* FICHIER = "numbers/numbers.txt";
+const int MAXNUM = 50;
+
+//------------------------------------------------------------------ Types
+
+//---------------------------------------------------- Variables statiques
+static pthread_mutex_t mtxCptLECTURE;
+static pthread_mutex_t mtxCptCONSOLE;
+static pthread_mutex_t mtxCptACCES;
+static FILE* pfile;
+static uint64_t shared[50][20];
+static int index_actuel = 0;
+//------------------------------------------------------ Fonctions privées
+static int is_prime(uint64_t p)
+{
+	int prime = 1;
+	unsigned int div = 2;
+	while (div<sqrt(p) && prime)
+		{
+			if (p%div==0)
+			{
+				prime = 0;
+			}
+			div++;
+		}
+		return prime;
+
+}
+
+/*static void *print_prime_factors(void *n)
+{ 	
+	uint64_t divPremier = 2;
+	uint64_t quotien = (uint64_t) n;
+	
+	char affichage[500];
+        sprintf(affichage,"%llu",quotien);
+        strcat(affichage,": ");
+
+	while (divPremier<=quotien)
+	{
+		if(is_prime(divPremier)==1 && quotien%divPremier==0 )
+		{
+			quotien = quotien/divPremier;
+			char buffer[150];
+			sprintf(buffer,"%llu",divPremier);
+			strcat(affichage,buffer);
+			strcat(affichage," ");
+		}
+		else
+		{
+			divPremier++;
+		}
+	}
+      	strcat(affichage,"\r\n");
+	pthread_mutex_lock(&mtxCptCONSOLE);
+	printf(affichage);
+	pthread_mutex_unlock(&mtxCptCONSOLE);	
+}*/
+
+static int get_prime_factors(uint64_t nombre_a_factoriser,uint64_t* dest)
+{
+	uint64_t divPremier = 2;
+	uint64_t quotien = nombre_a_factoriser;
+	int index =0 ;
+	
+	int index_shared =0;
+	int erreur =0; //
+	pthread_mutex_lock(&mtxCptACCES);
+	for (index_shared=0; index_shared<index_actuel && erreur==0; index_shared++) //
+	{
+
+		if (shared[index_shared][0]== quotien)
+		{
+			erreur=1;
+			int k=0;
+			for (k;k<19;k++)
+			{
+				dest[k]=shared[index_shared][k+1];
+			}
+		}
+	}
+	pthread_mutex_unlock(&mtxCptACCES);
+	if (erreur == 0)//
+	{
+		while (divPremier<=quotien && erreur == 0)
+		{
+			if(is_prime(divPremier)==1 && quotien%divPremier==0 )
+			{
+				quotien = quotien/divPremier;
+				dest[index]=divPremier;
+				index++;
+				pthread_mutex_lock(&mtxCptACCES);
+				for (index_shared=0; index_shared<index_actuel && erreur==0; index_shared++) //
+				{
+					if (shared[index_shared][0]== quotien)
+					{
+						erreur=1;
+						for (index;index<19;index++)
+						{
+							dest[index]=shared[index_shared][index+1];
+						}
+					}
+				}
+				pthread_mutex_unlock(&mtxCptACCES);
+			}
+			else
+			{
+				divPremier++;
+			}	
+		}
+
+		pthread_mutex_lock(&mtxCptACCES);
+		int i=0;
+		shared[index_actuel][i++]=nombre_a_factoriser;
+		for (i;i<20;i++)// on implémente la decomposition
+		{
+			shared[index_actuel][i]=dest[i-1];
+		}
+		index_actuel++;
+		pthread_mutex_unlock(&mtxCptACCES);
+
+
+	}
+	return index;
+} 
+
+static void *print_prime_factors(void *n)
+{
+	uint64_t tableauFacteurs[20];
+	int j,k;
+	char affichage[100];
+        sprintf(affichage,"%" PRId64,(uint64_t) n);
+        strcat(affichage,": ");
+	
+	k = get_prime_factors((uint64_t) n,tableauFacteurs);
+	
+	for(j=0;j<k;j++)
+	{
+		sprintf(affichage + strlen(affichage),"%" PRId64,tableauFacteurs[j]);
+		sprintf(affichage + strlen(affichage)," ");
+	}
+      	strcat(affichage,"\r\n");
+	pthread_mutex_lock(&mtxCptCONSOLE);
+	printf(affichage);
+	pthread_mutex_unlock(&mtxCptCONSOLE);
+
+	return NULL;	
+}
+
+static void *activityThread(void* nul)
+{
+	
+	uint64_t nombreActuel;
+	int lu = 0;
+
+	while(lu != EOF)
+	{
+
+		pthread_mutex_lock(&mtxCptLECTURE);
+		lu = fscanf(pfile,"%lu",&nombreActuel);
+		pthread_mutex_unlock(&mtxCptLECTURE);
+
+		if (lu != EOF)
+		{
+			(*print_prime_factors)((void *)nombreActuel);
+		}	
+	}
+	return NULL;
+}
+
+
+
+//////////////////////////////////////////////////////////////////  PUBLIC
+//---------------------------------------------------- Fonctions publiques
+int main () //THREADS MUTEX
+{
+	pthread_t threadOne;
+      	pthread_t threadTwo;
+	pthread_mutex_init(&mtxCptCONSOLE,NULL);
+	pthread_mutex_init(&mtxCptLECTURE,NULL);
+	pthread_mutex_init(&mtxCptACCES,NULL);
+	pfile = fopen(FICHIER, "r");
+	
+	int crdu;
+
+	crdu = pthread_create(&threadOne,NULL,&activityThread, NULL);
+	
+	if (crdu != 0)
+		{
+		  printf("erreur de création %i",crdu);
+		  exit(-1);
+		}
+	crdu = pthread_create(&threadTwo,NULL,&activityThread, NULL);
+	      if (crdu != 0)
+		{
+		  printf("erreur de création %i",crdu);
+		  exit(-1);
+		}
+	crdu = pthread_join(threadOne,NULL);
+	       if (crdu != 0)
+		{
+		  printf("erreur de fin %i",crdu);
+		  exit(-1);
+		}
+	      crdu = pthread_join(threadTwo,NULL);
+	       if (crdu != 0)
+		{
+		  printf("erreur de fin %i",crdu);
+		  exit(-1);
+		}
+	pthread_exit(NULL);
+}
+
+
+/*int main () // THREADS VERSION 1
+{
+	FILE* pfile = fopen(FICHIER, "r");
+	uint64_t nombreActuelPremier;
+	uint64_t nombreActuelSecond;
+	int crdu;
+
+
+	while (fscanf(pfile,"%lu",&nombreActuelPremier) != EOF)
+	{
+	  if (fscanf(pfile,"%lu",&nombreActuelSecond) != EOF)
+	    {
+	      pthread_t threadOne;
+	      pthread_t threadTwo;
+	      crdu = pthread_create(&threadOne,NULL,&print_prime_factors, (void *)nombreActuelPremier);
+	      if (crdu != 0)
+		{
+		  printf("erreur de création %f",crdu);
+		  exit(-1);
+		}
+	      crdu = pthread_create(&threadTwo,NULL,&print_prime_factors, (void *)nombreActuelSecond);
+	      if (crdu != 0)
+		{
+		  printf("erreur de création %f",crdu);
+		  exit(-1);
+		}
+
+	      crdu = pthread_join(threadOne,NULL);
+	       if (crdu != 0)
+		{
+		  printf("erreur de fin %f",crdu);
+		  exit(-1);
+		}
+	      crdu = pthread_join(threadTwo,NULL);
+	       if (crdu != 0)
+		{
+		  printf("erreur de fin %f",crdu);
+		  exit(-1);
+		}
+
+	    }
+	  else
+	    {
+	      print_prime_factors((void*)nombreActuelPremier);
+	    }
+	}
+	fclose (pfile);
+	pthread_exit(NULL);
+}*/
+
+/*int main() // SEQUENTIELLE
+{
+	FILE* pfile = fopen(FICHIER, "r");
+	uint64_t nombreActuel;
+
+	while (fscanf(pfile,"%lu",&nombreActuel) != EOF)
+	{
+		print_prime_factors((void*)nombreActuel);
+	}
+	fclose (pfile);
+	pthread_exit(NULL);	
+
+}*/
