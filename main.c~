@@ -111,7 +111,7 @@ static int get_prime_factors(uint64_t nombre_a_factoriser,uint64_t* dest)
 				dest[index]=divPremier;
 				index++;
 				pthread_mutex_lock(&mtxCptACCES);
-				for (index_shared=0; index_shared< index_actuel && erreur==0; index_shared++) // on parcourt SHARED
+				for (index_shared=0; index_shared<index_actuel && erreur==0; index_shared++) // on parcourt SHARED
 				{
 					if (shared[index_shared][0]== quotien)
 					{
@@ -156,6 +156,7 @@ static void *print_prime_factors(void *n)
         strcat(affichage,": ");
 	
 	k = get_prime_factors((uint64_t) n,tableauFacteurs);
+	printf("%i \n",k);
 	
 	for(j=0;j<k;j++)
 	{
